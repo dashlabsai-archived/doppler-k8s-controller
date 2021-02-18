@@ -1,13 +1,53 @@
 ---
+kind: Namespace
+apiVersion: v1
+metadata:
+  name: doppler-k8s-controller
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: dopplersecrets.k8s.dashlabs.ai
+spec:
+  group: k8s.dashlabs.ai
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                dopplerAPIKey:
+                  type: string
+                secretName:
+                  type: string
+                updateDeployments:
+                  type: array
+                  items:
+                    type: string
+  scope: Namespaced
+  names:
+    shortNames:
+      - ds
+    kind: DopplerSecret
+    plural: dopplersecrets
+    singular: dopplersecret
+---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: service-account
+  namespace: doppler-k8s-controller
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: read-services
+  namespace: doppler-k8s-controller
 rules:
 - apiGroups: [""]
   resources: ["secrets"]
@@ -24,6 +64,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: read-services
+  namespace: doppler-k8s-controller
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -36,6 +77,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: doppler-k8s-controller
+  namespace: doppler-k8s-controller
 spec:
   replicas: 1
   selector:
@@ -52,30 +94,7 @@ spec:
       - name: doppler-k8s-controller
         image: ghcr.io/dashboardlabs/doppler-k8s-controller
         imagePullPolicy: "Always"
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: alpine
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: alpine
-  template:
-    metadata:
-      labels:
-        app: alpine
-    spec:
-      terminationGracePeriodSeconds: 30
-      containers:
-      - name: alpine
-        image: alpine
-        command:
-          - /bin/sh
-          - "-c"
-          - "sleep 60m"
-        imagePullPolicy: IfNotPresent
-        envFrom:
-            - secretRef:
-                name: testing-secret
+        env:
+        - name: REFRESH_RATE
+          value: '15000' # TODO: Set your refresh rate here (in milliseconds)
+        resources: {}

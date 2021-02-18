@@ -1,34 +1,18 @@
 import axios from 'axios'
-const { Client } = require('kubernetes-client')
+import { Client1_13 } from 'kubernetes-client'
+import crd from './crd'
+import createDeploymentManifest from './createDeploymentManifest'
+import createSecretManifest from './createSecretManifest'
 
-const _createSecretManifest = (data) => {
-  return {
-    apiVersion: 'v1',
-    kind: 'Secret',
-    metadata: {
-      name: 'testing-secret'
-    },
-    type: 'Opaque',
-    data
-  }
-}
+const client = new Client1_13({})
 
-setInterval(async () => {
-  console.log('Polling from Doppler')
+client.addCustomResourceDefinition(crd)
 
-  const logs = await axios({
-    url: 'https://api.doppler.com/v3/configs/config/logs',
-    headers: {
-      'api-key': 'dp.st.dev.p83nlqya6H6917AWjdM7CREz0HJjI7bdsZxh6Njs'
-    }
-  })
-
-  const latestLog = logs.data.logs[0].created_at
-
+const uploadToKube = async (dopplerSecret, latestLog): Promise<void> => {
   const { data } = await axios({
     url: 'https://api.doppler.com/v3/configs/config/secrets',
     headers: {
-      'api-key': 'dp.st.dev.p83nlqya6H6917AWjdM7CREz0HJjI7bdsZxh6Njs'
+      'api-key': dopplerSecret.spec.dopplerAPIKey
     }
   })
 
@@ -36,61 +20,67 @@ setInterval(async () => {
     computed: latestLog
   }
 
-  const client = new Client({ version: '1.13' })
+  const secretManifest = createSecretManifest(
+    dopplerSecret.spec.secretName,
+    data.secrets
+  )
 
-  const previousData = await client.api.v1
-    .namespaces('default')
-    .secrets('testing-secret')
-    .get()
-
-  if (
-    Buffer.from(latestLog).toString('base64') !==
-    previousData?.body?.data?.LATEST_ENV_UPDATE
-  ) {
-    Object.keys(data.secrets).map(function (key) {
-      data.secrets[key] = Buffer.from(data.secrets[key].computed).toString(
-        'base64'
-      )
-    })
-
-    console.log('Updating Kube')
-
-    const secretManifest = _createSecretManifest(data.secrets)
-
-    try {
-      await client.api.v1
-        .namespaces('default')
-        .secrets.post({ body: secretManifest })
-    } catch (e) {
-      await client.api.v1
-        .namespaces('default')
-        .secrets('testing-secret')
-        .put({ body: secretManifest })
+  try {
+    await client.api.v1
+      .namespaces(dopplerSecret.metadata.namespace)
+      .secrets.post({ body: secretManifest })
+  } catch (e) {
+    await client.api.v1
+      .namespaces(dopplerSecret.metadata.namespace)
+      .secrets(dopplerSecret.spec.secretName)
+      .put({ body: secretManifest })
+  }
+  dopplerSecret.spec.updateDeployments.forEach(
+    async (deploymentName: string) => {
+      await client.apis.apps.v1
+        .namespaces(dopplerSecret.metadata.namespace)
+        .deployments(deploymentName)
+        .patch(createDeploymentManifest(latestLog))
+      console.log(`(${latestLog}) [${deploymentName} - ${dopplerSecret.spec.secretName}] Secret Updated`)
     }
-    await client.apis.apps.v1
-      .namespaces('default')
-      .deployments('alpine')
-      .patch({
-        body: {
-          metadata: {
-            annotations: {
-              LATEST_ENV_UPDATE: latestLog
-            }
-          },
-          spec: {
-            template: {
-              metadata: {
-                annotations: {
-                  'kubectl.kubrnetes.io/restartedAt': latestLog,
-                  'LATEST_ENV_UPDATE': latestLog
-                }
-              }
-            }
-          }
+  )
+}
+
+setInterval(async () => {
+  const namespaces = await client.api.v1.namespaces.get()
+
+  namespaces.body.items.forEach(async (namespace) => {
+    const dopplerSecrets = (await (
+      await client.apis['k8s.dashlabs.ai'].v1
+        .namespaces(namespace.metadata.name)
+        .dopplersecrets.get()
+    ).body.items.filter((x) => x.kind === 'DopplerSecret')) as any[]
+
+    dopplerSecrets.forEach(async (dopplerSecret) => {
+      const logs = await axios({
+        url: 'https://api.doppler.com/v3/configs/config/logs',
+        headers: {
+          'api-key': dopplerSecret.spec.dopplerAPIKey
         }
       })
-    console.log('Kube Updated')
-  } else {
-    console.log('No need to update')
-  }
-}, 15000)
+
+      const latestLog = logs.data.logs[0].created_at
+
+      try {
+        const previousData = await client.api.v1
+        .namespaces(dopplerSecret.metadata.namespace)
+        .secrets(dopplerSecret.spec.secretName)
+          .get()
+
+        if (
+          Buffer.from(latestLog).toString('base64') !==
+          previousData?.body?.data?.LATEST_ENV_UPDATE
+        ) {
+          await uploadToKube(dopplerSecret, latestLog)
+        }
+      } catch (e) {
+        await uploadToKube(dopplerSecret, latestLog)
+      }
+    })
+  })
+}, Number(process.env.REFRESH_RATE))
