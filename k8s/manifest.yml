@@ -1,0 +1,81 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: service-account
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: read-services
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["create", "update"]
+- apiGroups: [""]
+  resources: ["namespaces"]
+  verbs: ["get", "watch", "list"]
+- apiGroups: ["apiextensions.k8s.io"]
+  resources: ["customresourcedefinitions"]
+  resourceNames: ["externalsecrets.kubernetes-client.io"]
+  verbs: ["get", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: read-services
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: read-services
+subjects:
+- kind: ServiceAccount
+  name: service-account
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: doppler-k8s-controller
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: doppler-k8s-controller
+  template:
+    metadata:
+      labels:
+        app: doppler-k8s-controller
+    spec:
+      terminationGracePeriodSeconds: 30
+      serviceAccountName: service-account
+      containers:
+      - name: doppler-k8s-controller
+        image: ghcr.io/dashboardlabs/doppler-k8s-controller
+        imagePullPolicy: "Always"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alpine
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: alpine
+  template:
+    metadata:
+      labels:
+        app: alpine
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+      - name: alpine
+        image: alpine
+        command:
+          - /bin/sh
+          - "-c"
+          - "sleep 60m"
+        imagePullPolicy: IfNotPresent
+        envFrom:
+            - secretRef:
+                name: testing-secret

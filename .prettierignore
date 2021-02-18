@@ -1,0 +1,20 @@
+# Ignore artifacts:
+build
+coverage
+__test__/
+dist/
+node_modules/
+tmp/
+*.json
+*.yaml
+*.yml
+Dockerfile
+.env
+.env.example
+*.md
+*.graphql
+.eslintignore
+.eslintrc.js
+.gitignore
+.prettierignore
+.prettierrc
