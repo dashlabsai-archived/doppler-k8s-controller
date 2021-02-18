@@ -92,7 +92,7 @@ spec:
       serviceAccountName: service-account
       containers:
       - name: doppler-k8s-controller
-        image: ghcr.io/dashboardlabs/doppler-k8s-controller
+        image: dashlabsai/doppler-k8s-controller
         imagePullPolicy: "Always"
         env:
         - name: REFRESH_RATE
