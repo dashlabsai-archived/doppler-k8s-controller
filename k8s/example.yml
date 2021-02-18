@@ -6,7 +6,7 @@ metadata:
   namespace: default
 spec:
   dopplerAPIKey: 'DOPPLER_API_KEY'
-  secretName: testing-secret
+  secretName: alpine-secret
   updateDeployments:
     - alpine
 ---
@@ -35,5 +35,5 @@ spec:
         imagePullPolicy: IfNotPresent
         envFrom:
             - secretRef:
-                name: testing-secret
+                name: alpine-secret
         resources: {}
